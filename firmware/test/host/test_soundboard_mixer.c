@@ -191,6 +191,145 @@ void test_poti_channels_independent(void)
 
 // –– REQ-AUDIO-003 –––––––––––––––––––––––––––––––––––––––––––––––
 
+static void reset_mixer(void)
+{
+    hal_mock_reset();
+    mock_poti_input_reset();
+    hal_mock_buttons_reset();
+    soundboard_mixer_init(&mixer, &MOCK_POTI_INPUT);
+}
+
+void test_ducking_fades_on_trigger(void)
+{
+    // Background at full vol; max aggressiveness gives an observable drop in few ticks.
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0);
+    warm_up_to_ema_convergence();
+
+    float vol_before = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < 5; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_after = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_after < vol_before);
+}
+
+void test_ducking_recovers_on_complete(void)
+{
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0);
+    warm_up_to_ema_convergence();
+
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_ducked = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_ducked < 0.5f);  // confirm ducking is active before testing recovery
+
+    soundboard_mixer_set_soundbyte_complete(&mixer);
+    for (int i = 0; i < 5; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_recovering = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_recovering > vol_ducked);
+}
+
+void test_ducking_level_controls_depth(void)
+{
+    // Level = 0: fades near silence but must not reach 0 (floor).
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0);
+    warm_up_to_ema_convergence();
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < 30; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_near_silence = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_near_silence > 0.0f);  // not mute
+    TEST_ASSERT_TRUE(vol_near_silence < 0.1f);  // near silence
+
+    // Level = MAX: ducking target = 1.0, so background is unaffected.
+    reset_mixer();
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < 30; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_full = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, vol_full);
+}
+
+void test_ducking_aggressiveness_controls_rate(void)
+{
+    const int TICKS = 5;
+
+    // Max aggressiveness: fast fade.
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0);
+    warm_up_to_ema_convergence();
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < TICKS; i++)
+        soundboard_mixer_tick(&mixer);
+    float vol_fast = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+
+    // Min aggressiveness: slow fade — same tick count, less drop.
+    reset_mixer();
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, 0);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0);
+    warm_up_to_ema_convergence();
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < TICKS; i++)
+        soundboard_mixer_tick(&mixer);
+    float vol_slow = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+
+    TEST_ASSERT_TRUE(vol_fast < vol_slow);
+}
+
+void test_ducking_back_to_back_soundbytes(void)
+{
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL,    HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0);
+    warm_up_to_ema_convergence();
+
+    // Soundbyte 1: let ducking settle.
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+    float vol_ducked = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_ducked < 0.5f);  // confirm ducking is active
+
+    // Soundbyte 2 starts and soundbyte 1 completes in the same tick.
+    // Ducking must stay engaged — no fade-up between the two.
+    hal_mock_button_set(HAL_BUTTON_SB_2, true);
+    soundboard_mixer_set_soundbyte_complete(&mixer);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SB_2, false);
+
+    float vol_between = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, vol_ducked, vol_between);
+}
+
+// –– REQ-AUDIO-004 –––––––––––––––––––––––––––––––––––––––––––––––
+
 // TODO: implement
 // ...
 
@@ -212,6 +351,12 @@ int main(void)
     RUN_TEST(test_poti_channels_independent);
 
     // –– REQ-AUDIO-003 ––––––––––––––––––––––––––––––––––––––––––
+    RUN_TEST(test_ducking_fades_on_trigger);
+    RUN_TEST(test_ducking_recovers_on_complete);
+    RUN_TEST(test_ducking_level_controls_depth);
+    RUN_TEST(test_ducking_aggressiveness_controls_rate);
+    RUN_TEST(test_ducking_back_to_back_soundbytes);
 
+    // –– REQ-AUDIO-004 ––––––––––––––––––––––––––––––––––––––––––
     return UNITY_END();
 }

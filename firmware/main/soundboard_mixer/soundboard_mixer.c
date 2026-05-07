@@ -67,3 +67,9 @@ bool soundboard_mixer_is_soundbyte_playing(soundboard_mixer_t *mixer)
 {
     return mixer->soundbyte_playing;
 }
+
+void soundboard_mixer_set_soundbyte_complete(soundboard_mixer_t *mixer)
+{
+    /* TODO: REQ-AUDIO-003 — process completion and begin fade-up */
+    (void)mixer;
+}
