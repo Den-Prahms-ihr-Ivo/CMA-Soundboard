@@ -9,12 +9,12 @@
  * No other module should know these ADC channels.
  */
 static const uint8_t poti_adc_channels[POTI_COUNT] = {
-    [POTI_LAPTOP_GAIN] = 0,
-    [POTI_BLUETOOTH_GAIN] = 1,
-    [POTI_SOUNDBOARD_GAIN] = 2,
+    [POTI_LAPTOP_VOL] = 0,
+    [POTI_BLUETOOTH_VOL] = 1,
+    [POTI_SOUNDBOARD_VOL] = 2,
     [POTI_DUCKING_SPEED] = 3,
     [POTI_DUCKING_LEVEL] = 4,
-    [POTI_SET_PAUSE_GAIN] = 5,
+    [POTI_SET_PAUSE_VOL] = 5,
 };
 
 /*
@@ -38,7 +38,7 @@ float hal_poti_read_normalized(poti_channel_t ch)
     return (float)hal_poti_read_raw(ch) / (float)HAL_ADC_MAX_VALUE;
 }
 
-const PotiInput HAL_POTI_INPUT = {
+const poti_input_t HAL_POTI_INPUT = {
     .read_raw = hal_poti_read_raw,
     .read_normalized = hal_poti_read_normalized,
 };

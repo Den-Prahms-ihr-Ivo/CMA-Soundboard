@@ -33,7 +33,7 @@ Phase A covers the audio pipeline foundation: source selection, gain control, du
 
 ## REQ-AUDIO-002
 
-**Status:** TODO
+**Status:** GREEN
 
 **Title:** Potentiometer values map to gain levels with smoothing
 
