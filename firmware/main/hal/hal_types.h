@@ -1,0 +1,33 @@
+#ifndef HAL_TYPES_H
+#define HAL_TYPES_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef enum
+{
+  HAL_BUTTON_SB_1 = 0,
+  HAL_BUTTON_SB_2,
+  HAL_BUTTON_SB_3,
+  HAL_BUTTON_SB_4,
+  HAL_BUTTON_SB_5,
+  HAL_BUTTON_SB_6,
+  HAL_BUTTON_SET_PAUSE,
+  HAL_BUTTON_UP,
+  HAL_BUTTON_DOWN,
+  HAL_BUTTON_CONFIRM,
+  HAL_BUTTON_PAIRING,
+  HAL_BUTTON_MUSIC_MODE,
+  HAL_BUTTON_TABATA,
+
+  HAL_BUTTON_COUNT
+} hal_button_t;
+
+typedef enum
+{
+  HAL_AUDIO_SOURCE_UNDEFINED = -1,
+  HAL_AUDIO_SOURCE_LAPTOP = 0,
+  HAL_AUDIO_SOURCE_BLUETOOTH = 1,
+} hal_audio_source_t;
+
+#endif /* HAL_TYPES_H */

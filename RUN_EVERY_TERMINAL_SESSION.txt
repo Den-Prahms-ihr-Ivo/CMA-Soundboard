@@ -1,0 +1,2 @@
+# This creates a file you need to source in every terminal session:
+. $HOME/export-esp.sh

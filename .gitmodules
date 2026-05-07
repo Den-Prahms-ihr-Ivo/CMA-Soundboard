@@ -1,0 +1,9 @@
+[submodule "firmware/test/host/Unity"]
+	path = firmware/test/host/Unity
+	url = https://github.com/ThrowTheSwitch/Unity.git
+[submodule "firmware/components/esp-adf"]
+	path = firmware/components/esp-adf
+	url = https://github.com/espressif/esp-adf.git
+[submodule "components/esp-adf"]
+	path = components/esp-adf
+	url = https://github.com/espressif/esp-adf
