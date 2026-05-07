@@ -14,6 +14,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_TARGET="x86_64-unknown-linux-gnu"  # Change for macOS: x86_64-apple-darwin or aarch64-apple-darwin
 C_TEST_BUILD_DIR="${REPO_ROOT}/build/host_tests"
+FAIL=0
 
 
 # ---------------------------------------------------------------------------

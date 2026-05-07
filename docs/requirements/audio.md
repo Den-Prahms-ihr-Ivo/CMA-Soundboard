@@ -8,7 +8,7 @@ Phase A covers the audio pipeline foundation: source selection, gain control, du
 
 ## REQ-AUDIO-001
 
-**Status:** RED
+**Status:** GREEN
 
 **Title:** Audio source selection reflects physical switch state
 

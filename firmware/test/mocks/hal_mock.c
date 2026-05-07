@@ -26,3 +26,5 @@ void hal_mock_set_adc(uint8_t channel, uint16_t value) { s_adc[channel] = value;
 void hal_mock_set_source_switch(hal_audio_source_t source) { s_source = source; }
 
 hal_audio_source_t hal_mock_get_source_switch(void) { return s_source; }
+
+hal_audio_source_t hal_source_switch_read(void) { return s_source; }
