@@ -6,11 +6,14 @@
 #include "../interfaces/poti_inputs.h"
 #include "hal_buttons_and_switches.h"
 
+#define PLAYLIST_CROSSFADE_STEP 0.05f
+
 typedef struct
 {
     float laptop_vol;
     float bluetooth_vol;
     float soundboard_vol;
+    float playlist_vol;
 } soundboard_mixer_vol_state_t;
 
 typedef enum
@@ -38,6 +41,14 @@ typedef struct
     bool  set_pause_prev;
     float pause_gain;
     float pause_level_ema;
+    bool  override_active;
+    bool  override_prev_music;
+    bool  override_prev_tabata;
+    float crossfade_gain;
+    float playlist_level_ema;
+    int   playlist_position;
+    int   playlist_length;
+    int   playlist_trigger;
 } soundboard_mixer_t;
 
 void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis);
@@ -47,5 +58,12 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer);
 soundboard_mixer_vol_state_t soundboard_mixer_get_vol_states(soundboard_mixer_t *mixer);
 hal_audio_source_t soundboard_mixer_get_active_audio_source(soundboard_mixer_t *mixer);
 bool soundboard_mixer_is_soundbyte_playing(soundboard_mixer_t *mixer);
+
+// REQ-PLAY-002
+void soundboard_mixer_set_playlist_length(soundboard_mixer_t *mixer, int length);
+void soundboard_mixer_next_track(soundboard_mixer_t *mixer);
+void soundboard_mixer_previous_track(soundboard_mixer_t *mixer);
+int  soundboard_mixer_get_playlist_position(soundboard_mixer_t *mixer);
+int  soundboard_mixer_get_playlist_trigger(soundboard_mixer_t *mixer);
 
 #endif /* SOUNDBOARD_MIXER_H */

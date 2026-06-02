@@ -22,4 +22,7 @@ void hal_mock_reset(void);
 /* Sets the mocked soundbyte value */
 void hal_mock_set_soundbyte_playing(bool b);
 
+/* Signals that the current playlist track has ended. Consumed once by the mixer tick. */
+void hal_mock_set_playlist_track_complete(bool b);
+
 #endif /* HAL_MOCK_H */

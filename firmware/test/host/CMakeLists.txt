@@ -66,3 +66,27 @@ add_module_test(test_soundboard_mixer
     "${FIRMWARE_MAIN}/soundboard_mixer/soundboard_mixer.c"
 )
 target_include_directories(test_soundboard_mixer PRIVATE "${FIRMWARE_MAIN}/soundboard_mixer")
+
+add_module_test(test_soundboard_mixer_play
+    "${FIRMWARE_MAIN}/soundboard_mixer/soundboard_mixer.c"
+)
+target_include_directories(test_soundboard_mixer_play PRIVATE "${FIRMWARE_MAIN}/soundboard_mixer")
+
+add_module_test(test_tabata
+    "${FIRMWARE_MAIN}/tabata/tabata.c"
+)
+target_include_directories(test_tabata PRIVATE "${FIRMWARE_MAIN}/tabata")
+
+# file_loader has no HAL dependency — uses fs_interface_t injection only.
+add_executable(test_file_loader
+    test_file_loader.c
+    "${FIRMWARE_MAIN}/file_loader/file_loader.c"
+    "${TEST_MAIN}/mocks/mock_fs.c"
+)
+target_include_directories(test_file_loader PRIVATE
+    "${FIRMWARE_MAIN}/file_loader"
+    "${TEST_MAIN}/mocks"
+    "${Unity_SOURCE_DIR}/src"
+)
+target_link_libraries(test_file_loader PRIVATE unity)
+add_test(NAME test_file_loader COMMAND test_file_loader)
