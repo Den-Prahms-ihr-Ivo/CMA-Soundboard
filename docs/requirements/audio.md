@@ -112,7 +112,7 @@ Phase A covers the audio pipeline foundation: source selection, gain control, du
 
 ### REQ-AUDIO-005
 
-**Status:** TODO
+**Status:** GREEN
 
 **Title:** Set Pause reduces background to pause volume
 

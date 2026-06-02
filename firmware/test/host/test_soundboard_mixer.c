@@ -402,6 +402,110 @@ void test_unmapped_button_safe(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, soundboard_mixer_get_vol_states(&mixer).soundboard_vol);
 }
 
+// –– REQ-AUDIO-005 –––––––––––––––––––––––––––––––––––––––––––––––
+
+void test_set_pause_toggles_volume(void)
+{
+    // First press → background fades to pause_volume; second press → back to full.
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_SET_PAUSE_VOL, HAL_ADC_MAX / 2); // 50% target
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+
+    float vol_full = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, false);
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_paused = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_paused < vol_full);
+
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, false);
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_restored = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, vol_full, vol_restored);
+}
+
+void test_set_pause_during_soundbyte(void)
+{
+    // While paused, a soundbyte must not duck the background below pause_volume.
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_SET_PAUSE_VOL, HAL_ADC_MAX / 2); // ~50%
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_LEVEL, 0); // would duck to silence if unguarded
+    warm_up_to_ema_convergence();
+
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, false);
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_paused = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.5f, vol_paused); // guard: pause settled
+
+    drive_to_soundbyte_playing();
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_during = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.5f, vol_during); // must stay at pause_vol, not duck lower
+}
+
+void test_set_pause_persists_across_source_switch(void)
+{
+    // Pause state is independent of source — switching source does not clear it.
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_BLUETOOTH_VOL, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_SET_PAUSE_VOL, HAL_ADC_MAX / 2);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    warm_up_to_ema_convergence();
+
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, false);
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol_before_switch = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_TRUE(vol_before_switch < 0.8f); // guard: pause is active
+
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_BLUETOOTH);
+    soundboard_mixer_tick(&mixer);
+
+    float vol_bt = soundboard_mixer_get_vol_states(&mixer).bluetooth_vol;
+    TEST_ASSERT_TRUE(vol_bt < 0.8f); // pause persists on new source
+}
+
+void test_set_pause_vol_at_max_no_effect(void)
+{
+    // pause_vol poti = MAX → pressing Set Pause leaves background at full.
+    hal_mock_set_source_switch(HAL_AUDIO_SOURCE_LAPTOP);
+    mock_poti_input_set_raw(POTI_LAPTOP_VOL, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_SET_PAUSE_VOL, HAL_ADC_MAX);
+    mock_poti_input_set_raw(POTI_DUCKING_SPEED, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, false);
+    for (int i = 0; i < 20; i++)
+        soundboard_mixer_tick(&mixer);
+
+    float vol = soundboard_mixer_get_vol_states(&mixer).laptop_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, vol);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -432,6 +536,12 @@ int main(void)
     RUN_TEST(test_soundbyte_interrupts_current);
     RUN_TEST(test_soundbyte_complete_clears_vol);
     RUN_TEST(test_unmapped_button_safe);
+
+    // –– REQ-AUDIO-005 ––––––––––––––––––––––––––––––––––––––––––
+    RUN_TEST(test_set_pause_toggles_volume);
+    RUN_TEST(test_set_pause_during_soundbyte);
+    RUN_TEST(test_set_pause_persists_across_source_switch);
+    RUN_TEST(test_set_pause_vol_at_max_no_effect);
 
     return UNITY_END();
 }

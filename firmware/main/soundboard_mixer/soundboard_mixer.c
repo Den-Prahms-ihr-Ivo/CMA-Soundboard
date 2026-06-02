@@ -24,6 +24,10 @@ void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis)
     mixer->duck_level_ema = 0.0f;
     mixer->soundboard_ema = 0.0f;
     mixer->state.soundboard_vol = 0.0f;
+    mixer->set_pause_active = false;
+    mixer->set_pause_prev   = false;
+    mixer->pause_gain       = 1.0f;
+    mixer->pause_level_ema  = 0.0f;
 }
 
 void soundboard_mixer_tick(soundboard_mixer_t *mixer)
@@ -40,6 +44,8 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
                                        mixer->potis->read_normalized(POTI_DUCKING_LEVEL));
     mixer->soundboard_ema = ema_update(mixer->soundboard_ema,
                                        mixer->potis->read_normalized(POTI_SOUNDBOARD_VOL));
+    mixer->pause_level_ema = ema_update(mixer->pause_level_ema,
+                                        mixer->potis->read_normalized(POTI_SET_PAUSE_VOL));
 
     /* Button detection — must run before HAL poll so a simultaneous
        complete+new-trigger keeps is_soundbyte_playing true when polled. */
@@ -52,6 +58,28 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
         }
     }
     mixer->soundbyte_playing = hal_soundbyte_is_playing();
+
+    /* Set Pause toggle — rising-edge detection on the button */
+    bool set_pause_now = hal_button_is_pressed(HAL_BUTTON_SET_PAUSE);
+    if (set_pause_now && !mixer->set_pause_prev)
+        mixer->set_pause_active = !mixer->set_pause_active;
+    mixer->set_pause_prev = set_pause_now;
+
+    /* Pause gain — fades to pause_level when active, back to 1.0 when not */
+    float pause_target = mixer->set_pause_active ? mixer->pause_level_ema : 1.0f;
+    float pause_step   = mixer->duck_speed_ema * DUCK_MAX_STEP;
+    if (mixer->pause_gain > pause_target)
+    {
+        mixer->pause_gain -= pause_step;
+        if (mixer->pause_gain < pause_target)
+            mixer->pause_gain = pause_target;
+    }
+    else if (mixer->pause_gain < pause_target)
+    {
+        mixer->pause_gain += pause_step;
+        if (mixer->pause_gain > pause_target)
+            mixer->pause_gain = pause_target;
+    }
 
     /* Ducking state machine */
     float floor = DUCK_FLOOR_MIN + (1.0f - DUCK_FLOOR_MIN) * mixer->duck_level_ema;
@@ -96,15 +124,18 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
         break;
     }
 
+    /* When paused, pause_gain governs the background — duck cannot cut below it */
+    float bg_gain = mixer->set_pause_active ? mixer->pause_gain : mixer->duck_gain;
+
     switch (mixer->active_source)
     {
     case HAL_AUDIO_SOURCE_LAPTOP:
-        mixer->state.laptop_vol = mixer->laptop_ema * mixer->duck_gain;
+        mixer->state.laptop_vol = mixer->laptop_ema * bg_gain;
         mixer->state.bluetooth_vol = 0.0f;
         break;
     case HAL_AUDIO_SOURCE_BLUETOOTH:
         mixer->state.laptop_vol = 0.0f;
-        mixer->state.bluetooth_vol = mixer->bluetooth_ema * mixer->duck_gain;
+        mixer->state.bluetooth_vol = mixer->bluetooth_ema * bg_gain;
         break;
     default:
         mixer->state.laptop_vol = 0.0f;

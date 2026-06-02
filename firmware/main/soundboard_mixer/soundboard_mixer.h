@@ -34,6 +34,10 @@ typedef struct
     float duck_speed_ema;
     float duck_level_ema;
     float soundboard_ema;
+    bool  set_pause_active;
+    bool  set_pause_prev;
+    float pause_gain;
+    float pause_level_ema;
 } soundboard_mixer_t;
 
 void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis);
