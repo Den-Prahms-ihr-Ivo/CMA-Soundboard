@@ -332,8 +332,75 @@ void test_ducking_back_to_back_soundbytes(void)
 
 // –– REQ-AUDIO-004 –––––––––––––––––––––––––––––––––––––––––––––––
 
-// TODO: implement
-// ...
+void test_soundbyte_triggers_on_button(void)
+{
+    // Button press → soundbyte playing and soundboard_vol non-zero.
+    mock_poti_input_set_raw(POTI_SOUNDBOARD_VOL, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+
+    hal_mock_button_set(HAL_BUTTON_SB_3, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SB_3, false);
+
+    TEST_ASSERT_TRUE(soundboard_mixer_is_soundbyte_playing(&mixer));
+    TEST_ASSERT_TRUE(soundboard_mixer_get_vol_states(&mixer).soundboard_vol > 0.0f);
+}
+
+void test_soundbyte_volume_tracks_poti(void)
+{
+    // soundboard_vol converges to 1.0 when poti is at max and a soundbyte is playing.
+    mock_poti_input_set_raw(POTI_SOUNDBOARD_VOL, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+    drive_to_soundbyte_playing();
+
+    float vol = soundboard_mixer_get_vol_states(&mixer).soundboard_vol;
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, vol);
+}
+
+void test_soundbyte_interrupts_current(void)
+{
+    // Second button press while playing → still playing, soundboard_vol uninterrupted.
+    mock_poti_input_set_raw(POTI_SOUNDBOARD_VOL, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+
+    hal_mock_button_set(HAL_BUTTON_SB_1, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SB_1, false);
+    TEST_ASSERT_TRUE(soundboard_mixer_is_soundbyte_playing(&mixer));
+
+    hal_mock_button_set(HAL_BUTTON_SB_2, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SB_2, false);
+
+    TEST_ASSERT_TRUE(soundboard_mixer_is_soundbyte_playing(&mixer));
+    TEST_ASSERT_TRUE(soundboard_mixer_get_vol_states(&mixer).soundboard_vol > 0.0f);
+}
+
+void test_soundbyte_complete_clears_vol(void)
+{
+    // soundboard_vol > 0 while playing; drops to 0.0 after playback ends.
+    mock_poti_input_set_raw(POTI_SOUNDBOARD_VOL, HAL_ADC_MAX);
+    warm_up_to_ema_convergence();
+    drive_to_soundbyte_playing();
+
+    TEST_ASSERT_TRUE(soundboard_mixer_get_vol_states(&mixer).soundboard_vol > 0.0f);
+
+    hal_mock_set_soundbyte_playing(false);
+    soundboard_mixer_tick(&mixer);
+
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, soundboard_mixer_get_vol_states(&mixer).soundboard_vol);
+}
+
+void test_unmapped_button_safe(void)
+{
+    // Non-SB button must not trigger playback or produce non-zero soundboard_vol.
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, true);
+    soundboard_mixer_tick(&mixer);
+    hal_mock_button_set(HAL_BUTTON_SET_PAUSE, false);
+
+    TEST_ASSERT_FALSE(soundboard_mixer_is_soundbyte_playing(&mixer));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, soundboard_mixer_get_vol_states(&mixer).soundboard_vol);
+}
 
 int main(void)
 {
@@ -360,5 +427,11 @@ int main(void)
     RUN_TEST(test_ducking_back_to_back_soundbytes);
 
     // –– REQ-AUDIO-004 ––––––––––––––––––––––––––––––––––––––––––
+    RUN_TEST(test_soundbyte_triggers_on_button);
+    RUN_TEST(test_soundbyte_volume_tracks_poti);
+    RUN_TEST(test_soundbyte_interrupts_current);
+    RUN_TEST(test_soundbyte_complete_clears_vol);
+    RUN_TEST(test_unmapped_button_safe);
+
     return UNITY_END();
 }

@@ -22,6 +22,8 @@ void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis)
     mixer->duck_gain = 1.0f;
     mixer->duck_speed_ema = 0.0f;
     mixer->duck_level_ema = 0.0f;
+    mixer->soundboard_ema = 0.0f;
+    mixer->state.soundboard_vol = 0.0f;
 }
 
 void soundboard_mixer_tick(soundboard_mixer_t *mixer)
@@ -36,6 +38,8 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
                                        mixer->potis->read_normalized(POTI_DUCKING_SPEED));
     mixer->duck_level_ema = ema_update(mixer->duck_level_ema,
                                        mixer->potis->read_normalized(POTI_DUCKING_LEVEL));
+    mixer->soundboard_ema = ema_update(mixer->soundboard_ema,
+                                       mixer->potis->read_normalized(POTI_SOUNDBOARD_VOL));
 
     /* Button detection — must run before HAL poll so a simultaneous
        complete+new-trigger keeps is_soundbyte_playing true when polled. */
@@ -107,6 +111,8 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
         mixer->state.bluetooth_vol = 0.0f;
         break;
     }
+
+    mixer->state.soundboard_vol = mixer->soundbyte_playing ? mixer->soundboard_ema : 0.0f;
 }
 
 soundboard_mixer_vol_state_t soundboard_mixer_get_vol_states(soundboard_mixer_t *mixer)

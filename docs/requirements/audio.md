@@ -86,11 +86,11 @@ Phase A covers the audio pipeline foundation: source selection, gain control, du
 
 ### REQ-AUDIO-004
 
-**Status:** TODO
+**Status:** GREEN
 
 **Title:** Soundbyte playback triggered by button press
 
-**Description:** Each of the six soundboard buttons maps to a sound file on the USB stick. Pressing a button starts playback of the mapped file at soundboard volume. If a soundbyte is already playing when a button is pressed, the current soundbyte stops and the new one starts immediately.
+**Description:** Each of the six soundboard buttons maps to a specific folder on the USB stick. Pressing a button starts playback of a random file from the mapped folder at soundboard volume. If a soundbyte is already playing when a button is pressed, the current soundbyte stops and the new one starts immediately.
 
 **Acceptance criteria:**
 
@@ -105,6 +105,7 @@ Phase A covers the audio pipeline foundation: source selection, gain control, du
 - `test_audio_mixer.c::test_soundbyte_triggers_on_button()`
 - `test_audio_mixer.c::test_soundbyte_interrupts_current()`
 - `test_audio_mixer.c::test_soundbyte_complete_clears_active()`
+- `test_audio_mixer.c::test_soundbyte_complete_clears_vol()`
 - `test_audio_mixer.c::test_unmapped_button_safe()`
 
 ---

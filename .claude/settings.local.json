@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash run_tests.sh)"
+    ]
+  }
+}

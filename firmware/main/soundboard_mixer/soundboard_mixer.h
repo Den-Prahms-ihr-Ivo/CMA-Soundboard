@@ -10,6 +10,7 @@ typedef struct
 {
     float laptop_vol;
     float bluetooth_vol;
+    float soundboard_vol;
 } soundboard_mixer_vol_state_t;
 
 typedef enum
@@ -32,6 +33,7 @@ typedef struct
     float duck_gain;
     float duck_speed_ema;
     float duck_level_ema;
+    float soundboard_ema;
 } soundboard_mixer_t;
 
 void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis);
