@@ -12,6 +12,14 @@ typedef struct
     float bluetooth_vol;
 } soundboard_mixer_vol_state_t;
 
+typedef enum
+{
+    DUCK_IDLE,
+    DUCK_FADING_DOWN,
+    DUCK_HELD,
+    DUCK_FADING_UP,
+} duck_state_t;
+
 typedef struct
 {
     const poti_input_t *potis;
@@ -20,6 +28,10 @@ typedef struct
     bool soundbyte_playing;
     float laptop_ema;
     float bluetooth_ema;
+    duck_state_t duck_state;
+    float duck_gain;
+    float duck_speed_ema;
+    float duck_level_ema;
 } soundboard_mixer_t;
 
 void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis);
@@ -29,8 +41,5 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer);
 soundboard_mixer_vol_state_t soundboard_mixer_get_vol_states(soundboard_mixer_t *mixer);
 hal_audio_source_t soundboard_mixer_get_active_audio_source(soundboard_mixer_t *mixer);
 bool soundboard_mixer_is_soundbyte_playing(soundboard_mixer_t *mixer);
-
-// REQ-AUDIO-003 — call once when the audio task reports playback finished
-void soundboard_mixer_set_soundbyte_complete(soundboard_mixer_t *mixer);
 
 #endif /* SOUNDBOARD_MIXER_H */

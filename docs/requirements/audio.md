@@ -58,7 +58,7 @@ Phase A covers the audio pipeline foundation: source selection, gain control, du
 
 ### REQ-AUDIO-003
 
-**Status:** RED
+**Status:** GREEN
 
 **Title:** Ducking gate fades background on soundbyte trigger
 

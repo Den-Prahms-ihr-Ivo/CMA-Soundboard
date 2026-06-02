@@ -19,4 +19,7 @@
 /* Reset all mock state to defaults. Call at the start of every test. */
 void hal_mock_reset(void);
 
+/* Sets the mocked soundbyte value */
+void hal_mock_set_soundbyte_playing(bool b);
+
 #endif /* HAL_MOCK_H */
