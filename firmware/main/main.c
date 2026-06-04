@@ -9,13 +9,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-void app_main(void) {
-    /* Soundboard — firmware not yet implemented.
-     * See docs/requirements/ for phase status.
-     * See docs/journal.md for current progress. */
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+void app_main(void)
+{
+    hal_t *hal = hal_esp32_impl();
+    // initialise GPIO 35 as output — do this somewhere appropriate
+    gpio_set_direction(HAL_PIN_LED_STATUS, GPIO_MODE_OUTPUT);
+
+    bool state = false;
+    for (;;)
+    {
+        hal->led_set(HAL_PIN_LED_STATUS, state);
+        state = !state;
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
-
-
