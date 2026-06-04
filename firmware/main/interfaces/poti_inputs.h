@@ -12,6 +12,7 @@ typedef enum
     POTI_DUCKING_LEVEL,
     POTI_SET_PAUSE_VOL,
     POTI_PLAYLIST_VOL,
+    POTI_CHILL_VOL,
     POTI_COUNT
 } poti_channel_t;
 

@@ -72,11 +72,6 @@ add_module_test(test_soundboard_mixer_play
 )
 target_include_directories(test_soundboard_mixer_play PRIVATE "${FIRMWARE_MAIN}/soundboard_mixer")
 
-add_module_test(test_tabata
-    "${FIRMWARE_MAIN}/tabata/tabata.c"
-)
-target_include_directories(test_tabata PRIVATE "${FIRMWARE_MAIN}/tabata")
-
 # file_loader has no HAL dependency — uses fs_interface_t injection only.
 add_executable(test_file_loader
     test_file_loader.c

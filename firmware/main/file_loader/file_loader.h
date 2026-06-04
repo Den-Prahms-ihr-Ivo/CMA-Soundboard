@@ -3,6 +3,7 @@
 
 #define SB_FOLDER_PREFIX "SB"
 #define MUSIC_FOLDER     "MUSIC"
+#define CHILL_FOLDER     "CHILL"
 #define TABATA_FOLDER    "TABATA"
 
 #define FILE_LOADER_MAX_FILES 64
@@ -28,9 +29,13 @@ void        file_loader_init(file_loader_t *loader, const fs_interface_t *fs);
  * button index (0–5 → SB1/–SB6/), or NULL if the folder is missing or empty. */
 const char *file_loader_get_soundbyte_path(file_loader_t *loader, int button_index);
 
-/* Returns the number of audio files in the MUSIC/ folder.
- * Passes this count to the caller so it can call
- * soundboard_mixer_set_playlist_length(). */
+/* Returns the number of audio files in MUSIC/, or 0 if missing/empty. */
 int         file_loader_get_music_playlist_length(file_loader_t *loader);
+
+/* Returns the number of audio files in CHILL/, or 0 if missing/empty. */
+int         file_loader_get_chill_playlist_length(file_loader_t *loader);
+
+/* Returns a path to one randomly-selected audio file from TABATA/, or NULL. */
+const char *file_loader_get_tabata_random_path(file_loader_t *loader);
 
 #endif /* FILE_LOADER_H */

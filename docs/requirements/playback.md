@@ -5,113 +5,151 @@ Language: C
 Test runner: `./run_tests.sh` (Unity tests on host)
 Phase gate: Phase A GREEN before any work in this file begins
 
-This file bridges Phase A and Phase B. The first two requirements (REQ-PLAY-001 and 002)
-extend the host-testable mixer with crossfade and playlist navigation logic. REQ-PLAY-003
-covers folder enumeration. REQ-PLAY-004 and 005 are the higher-level music mode and Tabata
-mode behaviours that depend on USB mass storage and the ADF pipeline — these are target-only
-and verified on hardware, not by Unity.
+This file bridges Phase A and Phase B. REQ-PLAY-001 and 002 extend the host-testable mixer
+with override transitions and playlist navigation. REQ-PLAY-003 covers folder enumeration.
+REQ-PLAY-004 through 006 are higher-level mode behaviours that depend on USB mass storage
+and the ADF pipeline — these are target-only and verified on hardware.
 
-The split exists because crossfading and playlist navigation are pure mixer logic that
-benefits from being designed and tested in isolation before being tangled up with file I/O
-and ADF integration. Same reasoning that put the original mixer in Phase A.
+The split exists because override transitions and playlist logic are pure mixer concerns
+that benefit from being designed and tested in isolation before being tangled up with
+file I/O and ADF integration.
 
 ---
 
-## REQ-PLAY-001 — Crossfade between source and playlist on override activation
+## Override modes overview
+
+There are three source-override modes: **MusicMode**, **TabataMode**, and **ChillMode**.
+Each has its own dedicated button (`HAL_BUTTON_MUSIC_MODE`, `HAL_BUTTON_TABATA`,
+`HAL_BUTTON_CHILL`) and its own folder on the USB stick (`MUSIC/`, `TABATA/`, `CHILL/`).
+
+Button semantics are uniform across all three modes:
+
+- Press mode button while no override active → enter that mode
+- Press the _same_ mode button while in that mode → exit override, return to source
+- Press a _different_ mode button while in some other override → swap directly to the new mode
+- Toggle the physical source switch → exit any active override, return to new source
+
+Crossfade rates differ by destination:
+
+- `PLAYLIST_CROSSFADE_STEP_FAST` (~1s): used when transitioning _into_ MusicMode or TabataMode, and used for all _exits_ back to source
+- `PLAYLIST_CROSSFADE_STEP_SLOW` (~3s): used when transitioning _into_ ChillMode
+
+The crossfade rate is a property of the destination, not the source channel. Transitioning
+from Music to Chill uses the slow rate (Chill is the destination). Transitioning from
+Chill to Music uses the fast rate (Music is the destination). Exiting any mode back to
+source uses the fast rate.
+
+Each mode plays from its folder:
+
+- **MusicMode** — continuous shuffled playback from `MUSIC/`, reshuffles and repeats
+- **TabataMode** — plays one random file from `TABATA/`, then automatically returns to previous source
+- **ChillMode** — continuous shuffled playback from `CHILL/`, reshuffles and repeats (same playlist behaviour as MusicMode, only the volume pot and crossfade rate differ)
+
+ChillMode has its own dedicated volume potentiometer (`POTI_CHILL_VOL`). MusicMode and
+TabataMode share the playlist channel with no per-mode volume pot — they use a default
+playlist volume constant or borrow the soundboard volume pot (TBD during implementation).
+
+---
+
+## REQ-PLAY-001 — Crossfade between source and active override
 
 **Status:** GREEN
-**Host-testable:** Yes — extends `soundboard_mixer.c` with new state and outputs
+**Host-testable:** Yes — extends `soundboard_mixer.c` with override state and crossfade logic
 
 **Description**
-When a source override (MusicMode or Tabata) activates, the active background source
-(Laptop or Bluetooth) fades down to 0 while the playlist channel fades up to `playlist_vol`.
-When the override deactivates, the playlist channel fades down to 0 while the source
-fades back up. The crossfade is smooth — no hard cuts at any point.
+When the active override changes (source to override, override to source, or override to override),
+the mixer crossfades between the relevant channels at the rate determined by the destination
+mode.
 
-Both directions of the crossfade use the same rate, controlled by a named constant
-`PLAYLIST_CROSSFADE_STEP` (initial value to be tuned during bring-up). The rate is not
-tied to the ducking aggressiveness potentiometer — playlist crossfade is a separate
-concern from soundbyte ducking.
+The mixer maintains:
 
-The crossfade state is independent of the ducking state machine. A soundbyte triggering
-during playlist mode causes ducking of the playlist channel (REQ-AUDIO-003 applies),
-not the source channel — the source is already at 0 because override is active.
+- `current_override` — the currently active override (NONE, MusicMode, TabataMode, ChillMode)
+- `crossfade_state` — internal ramping state for source and playlist channels
+
+On any change to `current_override`, the mixer:
+
+1. Determines the destination's crossfade rate (FAST for None / Music / Tabata; SLOW for Chill)
+2. Begins fading the outgoing channel down toward 0 at that rate
+3. Begins fading the incoming channel up toward its target volume at that rate
+4. Updates the active source / playlist routing once the crossfade completes
+
+The crossfade is smooth — no hard cuts at any point. Both directions of the crossfade
+use the same rate (the destination's rate).
 
 **Acceptance criteria**
 
-- Override activated (MusicMode or Tabata) → source channel begins fade-down, playlist channel begins fade-up
-- After crossfade completes → source channel vol = 0, playlist channel vol = playlist_vol
-- Override cleared → playlist channel begins fade-down, source channel begins fade-up
-- After crossfade completes → playlist channel vol = 0, source channel vol = source_vol
-- Crossfade is symmetric — same rate up and down
-- `PLAYLIST_CROSSFADE_STEP` is a named constant
+- No override to MusicMode: source fades down, playlist fades up, both at FAST rate
+- No override to ChillMode: source fades down, playlist fades up, both at SLOW rate
+- MusicMode to no override: playlist fades down, source fades up, both at FAST rate
+- ChillMode to no override: playlist fades down, source fades up, both at FAST rate
+- MusicMode to ChillMode: crossfade uses SLOW rate (Chill is destination)
+- ChillMode to MusicMode: crossfade uses FAST rate (Music is destination)
+- `PLAYLIST_CROSSFADE_STEP_FAST` and `PLAYLIST_CROSSFADE_STEP_SLOW` are named constants
 - Crossfade does not interfere with soundbyte ducking on the active channel
 
 **Tests**
 
 ```
 test_soundboard_mixer.c
-  ::test_crossfade_source_down_on_override_activation
-  ::test_crossfade_playlist_up_on_override_activation
-  ::test_crossfade_source_up_on_override_clear
-  ::test_crossfade_playlist_down_on_override_clear
-  ::test_crossfade_rate_is_named_constant
+  ::test_crossfade_source_to_music_uses_fast
+  ::test_crossfade_source_to_chill_uses_slow
+  ::test_crossfade_music_to_source_uses_fast
+  ::test_crossfade_chill_to_source_uses_fast
+  ::test_crossfade_music_to_chill_uses_slow
+  ::test_crossfade_chill_to_music_uses_fast
+  ::test_crossfade_rates_are_named_constants
   ::test_crossfade_does_not_interfere_with_soundbyte_ducking
 ```
 
 ---
 
-## REQ-PLAY-002 — Playlist track navigation through mixer state
+## REQ-PLAY-002 — Override button semantics
 
 **Status:** GREEN
-**Host-testable:** Yes — extends `soundboard_mixer.c` with playlist position state
+**Host-testable:** Yes — extends `soundboard_mixer.c` with button-to-override mapping
 
 **Description**
-The mixer maintains a `playlist_position` (current track index) and a `playlist_length`
-(total tracks in the active playlist). Length is set externally by the C file loader
-when a playlist is loaded. Position is advanced by `soundboard_mixer_next_track()` and
-decremented by `soundboard_mixer_previous_track()`.
+The mixer interprets override button presses according to uniform semantics:
 
-When a track change is requested or a track ends, the mixer emits a
-`TriggerPlaylistTrack(new_position)` output that the C file loader consumes to start
-playback of the new file. End-of-track is signalled to the mixer via
-`hal_mock_set_playlist_track_complete(true)` (analogous to soundbyte completion).
+- Press a mode button while no override is active → set override to that mode
+- Press the same mode button while that mode is active → clear override (return to source)
+- Press a different mode button while some override is active → swap directly to the new override
+- Toggle the physical source switch while any override is active → clear override (return to new source)
 
-End-of-playlist behaviour wraps: position N-1 → position 0. This matches the music mode
-"reshuffle and repeat" intent from the original design — the wrap point is where the
-file loader could reshuffle.
-
-The mixer does not know about file paths or playlist contents — only the position
-within a list whose length was set externally.
+The override change in turn triggers a crossfade per REQ-PLAY-001. The mixer does not
+need to know about button debouncing — it receives clean button events from the HAL.
 
 **Acceptance criteria**
 
-- `soundboard_mixer_next_track()` → playlist_position increments, TriggerPlaylistTrack(N+1) emitted
-- `soundboard_mixer_previous_track()` → playlist_position decrements
-- Position N-1 + next → wraps to position 0
-- Position 0 + previous → wraps to N-1
-- Track complete signal → next track triggered automatically (sequential playback)
-- `playlist_length` of 0 → next/previous have no effect, no crash
-- `playlist_length` of 1 → next/previous always stay at position 0
+- override = None, press Music button → override = MusicMode
+- override = MusicMode, press Music button → override = None
+- override = MusicMode, press Chill button → override = ChillMode (no intermediate None)
+- override = ChillMode, press Music button → override = MusicMode (no intermediate None)
+- override = MusicMode, press Tabata button → override = TabataMode
+- override = MusicMode, toggle source switch → override = None
+- override change always triggers a crossfade (REQ-PLAY-001 applies)
+- override button events are edge-triggered, not level-triggered.
 
 **Tests**
 
 ```
 test_soundboard_mixer.c
-  ::test_playlist_next_increments_position
-  ::test_playlist_previous_decrements_position
-  ::test_playlist_next_wraps_at_end
-  ::test_playlist_previous_wraps_at_start
-  ::test_playlist_track_complete_triggers_next
-  ::test_playlist_length_zero_safe
-  ::test_playlist_length_one_safe
+  ::test_music_button_enters_music_mode
+  ::test_music_button_exits_music_mode
+  ::test_chill_button_enters_chill_mode
+  ::test_chill_button_exits_chill_mode
+  ::test_tabata_button_enters_tabata_mode
+  ::test_tabata_button_exits_tabata_mode
+  ::test_music_to_chill_via_chill_button
+  ::test_chill_to_music_via_music_button
+  ::test_source_switch_toggle_clears_override
 ```
 
 ---
 
 ## REQ-PLAY-003 — File loader enumerates folder and selects file
 
-**Status:** GREEN
+**Status:** TODO
 **Host-testable:** Partial — folder-mapping logic can be tested with a mock filesystem,
 but actual FAT/USB reads require target hardware
 
@@ -120,32 +158,38 @@ The C file loader module is responsible for mapping a button index or mode to a 
 path, enumerating the files in that folder, and selecting one for playback. Behaviour
 depends on context:
 
-- Soundboard buttons → SB1/ through SB6/ folders, **random** file selection
-- Music mode → MUSIC/ folder, **shuffled sequential** playback
-- Tabata cues → TABATA/work._, TABATA/rest._, TABATA/complete.\* — **fixed file names**
+- Soundboard buttons → `SB1/` through `SB6/` folders, **random** file selection per press
+- MusicMode → `MUSIC/` folder, **shuffled sequential** playback
+- ChillMode → `CHILL/` folder, **shuffled sequential** playback
+- TabataMode → `TABATA/` folder, **random** file selection (single file per session)
 
 Random seed is derived from `esp_random()` on boot and not reset during operation.
 Only WAV and MP3 files are considered — other file types in the folder are ignored.
 
 The file loader exposes `playlist_length` to the mixer when a playlist folder is loaded.
-This is how REQ-PLAY-002's externally-set length arrives.
 
 **Acceptance criteria**
 
-- Button index 0 → enumerates SB1/ folder, selects random WAV or MP3
-- Button index 5 → enumerates SB6/ folder, selects random WAV or MP3
+- Button index 0 → enumerates `SB1/` folder, selects random WAV or MP3
+- Button index 5 → enumerates `SB6/` folder, selects random WAV or MP3
+- MusicMode load → reads `MUSIC/`, reports playlist_length matching file count
+- ChillMode load → reads `CHILL/`, reports playlist_length matching file count
+- TabataMode load → reads `TABATA/`, selects random file (single file, not a playlist)
 - Empty folder → returns no file, no crash
 - Folder missing → returns no file, no crash
 - Non-audio files in folder → ignored, not selected
 - Random selection uses esp_random() seed, not a fixed seed
-- Music mode load → playlist_length reported to mixer matches file count in MUSIC/
-- Named constants: SB_FOLDER_PREFIX ("SB"), MUSIC_FOLDER ("MUSIC"), TABATA_FOLDER ("TABATA")
+- Named constants: `SB_FOLDER_PREFIX` ("SB"), `MUSIC_FOLDER` ("MUSIC"),
+  `CHILL_FOLDER` ("CHILL"), `TABATA_FOLDER` ("TABATA")
 
 **Tests**
 
 ```
 test_file_loader.c
   ::test_loader_maps_button_index_to_folder
+  ::test_loader_loads_music_playlist
+  ::test_loader_loads_chill_playlist
+  ::test_loader_loads_tabata_random_file
   ::test_loader_returns_null_for_empty_folder
   ::test_loader_returns_null_for_missing_folder
   ::test_loader_ignores_non_audio_files
@@ -167,122 +211,162 @@ the folder contains files. True randomness testing is out of scope.
 **Host-testable:** No — depends on USB mass storage, FAT filesystem, and ADF pipeline
 
 **Description**
-Music mode is activated by the music mode button. When active:
+Music mode is activated by the Music button. When active:
 
-1. Override is set to MusicMode (REQ-AUDIO-001 applies — Laptop and Bluetooth gains zeroed)
-2. Source channel crossfades down, playlist channel crossfades up (REQ-PLAY-001)
-3. MUSIC/ folder is enumerated, shuffled, and `playlist_length` set on the mixer (REQ-PLAY-003)
-4. First track plays; on end-of-file, next track in shuffle plays (REQ-PLAY-002)
+1. Override is set to MusicMode (REQ-PLAY-002)
+2. Source channel crossfades down, playlist channel crossfades up at FAST rate (REQ-PLAY-001)
+3. `MUSIC/` folder is enumerated, shuffled, and `playlist_length` set on the mixer (REQ-PLAY-003)
+4. First track plays; on end-of-file, next track in shuffle plays
 5. After all tracks play, the shuffle reshuffles and continues
 
 Soundboard buttons remain functional during music mode — soundbytes play over the music
 with ducking applied to the playlist channel (REQ-AUDIO-003).
 
-Music mode deactivates on:
+Music mode deactivates per REQ-PLAY-002:
 
-- Second press of music mode button
-- Physical source switch toggle
+- Second press of Music button → exit to source
+- Press of Chill or Tabata button → swap to that mode
+- Source switch toggle → exit to source
 
-On deactivation: current track stops, playlist channel crossfades down, source channel
-crossfades up, override clears.
+On exit: current track stops, crossfade to source channel at FAST rate.
 
 **Acceptance criteria** (verified on hardware)
 
-- Music mode button press → audible crossfade from source to MUSIC/ files
+- Music button press → audible crossfade from source to `MUSIC/` files (~1s)
 - Tracks play continuously without audible gap at transitions
 - After all tracks → playlist reshuffles and continues without user action
 - Soundboard button during music mode → soundbyte audible over ducked music
-- Music mode button press again → audible crossfade back to source
+- Music button press again → audible crossfade back to source (~1s)
+- Chill button while in music mode → audible crossfade to chill (~3s)
 - Source switch toggle → audible crossfade back to new source
-- MUSIC/ folder empty or missing → music mode button has no effect, no crash
+- `MUSIC/` folder empty or missing → music button has no effect, no crash
 
 **Tests**
 
 ```
-Target-only — no host test. Verified by ear and visual inspection
-of LED ring (red for music mode) during hardware bring-up.
+Target-only — no host test. Verified by ear during hardware bring-up.
+LED ring shows red while music mode active.
 ```
 
 ---
 
-## REQ-PLAY-005 — Tabata mode runs interval protocol with audio cues
+## REQ-PLAY-005 — Tabata mode plays one random track and returns to previous source
 
-**Status:** TODO
-**Host-testable:** Partial — interval timing and round counting can be host-tested;
-audio cue playback requires hardware
+**Status:** GREEN
+**Host-testable:** Partial — override entry/exit on track completion is host-testable;
+actual file playback requires hardware
 
 **Description**
-Tabata mode is activated by the Tabata mode button. When active, the device runs the
-standard Tabata protocol: 8 rounds of 20 seconds work followed by 10 seconds rest.
-Audio cue files from the TABATA/ folder play at each interval transition:
+Tabata mode is activated by the Tabata button. When active:
 
-- TABATA/work.\* — plays at start of each work interval
-- TABATA/rest.\* — plays at start of each rest interval
-- TABATA/complete.\* — plays when all 8 rounds are done
+1. The previous source (or override) is captured before transition
+2. Override is set to TabataMode (REQ-PLAY-002)
+3. Crossfade from previous channel to playlist channel at FAST rate (REQ-PLAY-001)
+4. `TABATA/` folder is enumerated and one file is selected at random (REQ-PLAY-003)
+5. The selected file plays to completion
+6. On end-of-file, override is automatically cleared and the previous state is restored
+   with a FAST crossfade
 
-Interval timing begins after the cue file finishes playing. If a cue file is missing,
-the interval starts immediately without a cue — no crash.
+Soundboard buttons remain functional during Tabata — soundbytes play over the Tabata
+track with ducking applied to the playlist channel.
 
-The override is set to Tabata while active (Laptop and Bluetooth gains zeroed via
-REQ-AUDIO-001 and REQ-PLAY-001 crossfade).
+Tabata mode also exits early per REQ-PLAY-002:
 
-On completion of all 8 rounds, the override clears automatically and the source reverts
-to the physical switch state. The Tabata button also exits the mode immediately if
-pressed during a session — no graceful "finish current round" behaviour.
+- Press Tabata button again → exit immediately, return to previous source
+- Press Music or Chill button → swap to that mode (does not return to previous source)
+- Source switch toggle → exit to new source
 
-Constants:
-
-- `TABATA_WORK_DURATION_S = 20`
-- `TABATA_REST_DURATION_S = 10`
-- `TABATA_ROUNDS = 8`
+This is the deliberate simplification of the original Tabata design: no interval timing,
+no work/rest counting, no audio cue orchestration. The mixed track contains all of that
+baked in. The firmware's job is to play it and return.
 
 **Acceptance criteria**
 
-- Tabata button press → override = Tabata, work cue triggered, 20s work interval begins
-- After 20s → rest cue triggered, 10s rest interval begins
-- After 10s → next work cue (repeat 8 rounds total)
-- After round 8 rest → complete cue, override clears, source restored via crossfade
-- Missing cue file → interval timer proceeds without cue, no crash
-- Tabata button press during session → session aborted, override clears immediately
-- Soundboard button during Tabata → soundbyte plays, interval timer continues
-- All three duration/round constants are named
+- Tabata button press while in source mode → override = TabataMode, previous source stored as Laptop or Bluetooth
+- Tabata button press while in Music or Chill → override = TabataMode, previous override stored
+- Track end-of-file signal → override clears, previous state restored
+- Tabata button press during playback → override clears immediately (no wait for end)
+- Music or Chill button during Tabata → swap to that mode, do not restore previous
+- `TABATA/` folder empty → Tabata button has no effect, no crash
+- Previous source/override state correctly restored after track ends
 
 **Tests**
 
 ```
-test_tabata.c (host-testable parts only)
-  ::test_tabata_runs_correct_round_count
-  ::test_tabata_work_duration_is_named_constant
-  ::test_tabata_rest_duration_is_named_constant
-  ::test_tabata_rounds_is_named_constant
-  ::test_tabata_completes_clears_override
-  ::test_tabata_button_aborts_session
-  ::test_tabata_soundbyte_does_not_abort_session
+test_soundboard_mixer.c (host-testable parts only)
+  ::test_tabata_button_captures_previous_source
+  ::test_tabata_button_captures_previous_override
+  ::test_tabata_track_complete_restores_previous_source
+  ::test_tabata_track_complete_restores_previous_override
+  ::test_tabata_button_during_playback_exits_immediately
+  ::test_music_button_during_tabata_swaps_without_restore
 
 Target-only verification:
-  ::test_tabata_audio_cues_at_transitions  (hardware bring-up)
-  ::test_tabata_missing_cue_does_not_crash (hardware bring-up)
+  ::test_tabata_plays_real_file_and_returns  (hardware bring-up)
 ```
 
 ---
 
-## Phase A.5 completion gate (REQ-PLAY-001, REQ-PLAY-002)
+## REQ-PLAY-006 — Chill mode plays continuously with slow crossfade
 
-These two requirements close the mixer extensions and can complete entirely on host.
+**Status:** TODO
+**Host-testable:** No — depends on USB mass storage, FAT filesystem, and ADF pipeline
+
+**Description**
+Chill mode is activated by the Chill button. Behaviour is identical to MusicMode except:
+
+- Crossfade uses the SLOW rate (~3s) on entry
+- Folder is `CHILL/` instead of `MUSIC/`
+- Playlist channel volume is controlled by `POTI_CHILL_VOL` rather than the default
+  playlist volume
+
+Chill mode deactivates per REQ-PLAY-002 (same as MusicMode). The 3-second crossfade
+also applies to swap-from-other-mode entries (Music to Chill, Tabata to Chill). All exits
+from Chill use the FAST rate, because the destination of an exit is the source channel
+(or another override using FAST rate).
+
+The intent: Chill is the "stretching music" mode. The longer crossfade and dedicated
+volume pot let the trainer set a calmer, quieter feel for cool-down without disturbing
+the louder workout volume on the soundboard or laptop channels.
+
+**Acceptance criteria** (verified on hardware)
+
+- Chill button press → audible 3-second crossfade from source to `CHILL/` files
+- Tracks play continuously without audible gap at transitions
+- After all tracks → playlist reshuffles and continues without user action
+- `POTI_CHILL_VOL` controls the playlist channel volume during Chill (not other modes)
+- Soundboard button during Chill → soundbyte audible over ducked chill music
+- Chill button press again → audible 1-second crossfade back to source
+- Music or Tabata button while in Chill → audible 1-second crossfade to that mode
+- Source switch toggle → audible 1-second crossfade to new source
+- `CHILL/` folder empty or missing → Chill button has no effect, no crash
+
+**Tests**
+
+```
+Target-only — no host test. Verified by ear during hardware bring-up.
+```
+
+---
+
+## Phase A.5 completion gate (REQ-PLAY-001, REQ-PLAY-002, REQ-PLAY-005 host-testable parts)
+
+These can complete entirely on host before any hardware work begins.
 
 - REQ-PLAY-001 and REQ-PLAY-002 Unity tests GREEN on host
+- REQ-PLAY-005 host-testable tests GREEN (override entry/exit, state restoration)
 - All Phase A tests still GREEN — no regressions
 - `run_tests.sh` exits 0
 - Git clean, journal updated
 
-## Phase B playback completion gate (REQ-PLAY-003, 004, 005)
+## Phase B playback completion gate (REQ-PLAY-003, 004, 006, and REQ-PLAY-005 target parts)
 
 These require hardware and complete during Phase B alongside Bluetooth.
 
 - REQ-PLAY-003 host-testable tests GREEN
-- Manual target test: music mode plays continuously from USB stick
-- Manual target test: Tabata completes 8 rounds with correct timing
-- Audio cues play at correct interval transitions
-- Crossfade from source to playlist is smooth and audible
+- Manual target test: music mode plays continuously from USB stick (REQ-PLAY-004)
+- Manual target test: Tabata plays one track and returns (REQ-PLAY-005)
+- Manual target test: chill plays continuously with slow crossfade (REQ-PLAY-006)
+- All crossfades smooth and audible at correct rates
 - `run_tests.sh` exits 0
 - Git clean, journal updated

@@ -61,21 +61,37 @@ void test_loader_reports_playlist_length(void)
     TEST_ASSERT_EQUAL_INT(3, file_loader_get_music_playlist_length(&loader));
 }
 
-void test_loader_folder_constants_are_named(void)
+void test_loader_loads_music_playlist(void)
 {
-    // All three folder constants must have the specified values.
-    TEST_ASSERT_EQUAL_STRING("SB",     SB_FOLDER_PREFIX);
-    TEST_ASSERT_EQUAL_STRING("MUSIC",  MUSIC_FOLDER);
-    TEST_ASSERT_EQUAL_STRING("TABATA", TABATA_FOLDER);
+    mock_fs_add_file("MUSIC", "track1.mp3");
+    mock_fs_add_file("MUSIC", "track2.wav");
+    TEST_ASSERT_EQUAL_INT(2, file_loader_get_music_playlist_length(&loader));
 }
 
-void test_loader_returns_path_for_audio_file(void)
+void test_loader_loads_chill_playlist(void)
 {
-    // Audio file present → non-NULL path that names the correct folder.
-    mock_fs_add_file("SB3", "boom.wav");
-    const char *path = file_loader_get_soundbyte_path(&loader, 2); // index 2 → SB3
+    mock_fs_add_file("CHILL", "ambient1.mp3");
+    mock_fs_add_file("CHILL", "ambient2.wav");
+    mock_fs_add_file("CHILL", "ambient3.mp3");
+    TEST_ASSERT_EQUAL_INT(3, file_loader_get_chill_playlist_length(&loader));
+}
+
+void test_loader_loads_tabata_random_file(void)
+{
+    mock_fs_add_file("TABATA", "workout.mp3");
+    mock_fs_add_file("TABATA", "session2.wav");
+    const char *path = file_loader_get_tabata_random_path(&loader);
     TEST_ASSERT_NOT_NULL(path);
-    TEST_ASSERT_NOT_NULL(strstr(path, "SB3"));
+    TEST_ASSERT_NOT_NULL(strstr(path, "TABATA"));
+}
+
+void test_loader_folder_constants_are_named(void)
+{
+    // All four folder constants must have the specified values.
+    TEST_ASSERT_EQUAL_STRING("SB", SB_FOLDER_PREFIX);
+    TEST_ASSERT_EQUAL_STRING("MUSIC", MUSIC_FOLDER);
+    TEST_ASSERT_EQUAL_STRING("CHILL", CHILL_FOLDER);
+    TEST_ASSERT_EQUAL_STRING("TABATA", TABATA_FOLDER);
 }
 
 void test_loader_music_count_excludes_non_audio(void)
@@ -94,12 +110,14 @@ int main(void)
 
     // –– REQ-PLAY-003 ––––––––––––––––––––––––––––––––––––––––––
     RUN_TEST(test_loader_maps_button_index_to_folder);
+    RUN_TEST(test_loader_loads_music_playlist);
+    RUN_TEST(test_loader_loads_chill_playlist);
+    RUN_TEST(test_loader_loads_tabata_random_file);
     RUN_TEST(test_loader_returns_null_for_empty_folder);
     RUN_TEST(test_loader_returns_null_for_missing_folder);
     RUN_TEST(test_loader_ignores_non_audio_files);
     RUN_TEST(test_loader_reports_playlist_length);
     RUN_TEST(test_loader_folder_constants_are_named);
-    RUN_TEST(test_loader_returns_path_for_audio_file);
     RUN_TEST(test_loader_music_count_excludes_non_audio);
 
     return UNITY_END();

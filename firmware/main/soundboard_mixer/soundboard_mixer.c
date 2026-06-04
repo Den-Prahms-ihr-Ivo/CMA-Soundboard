@@ -28,12 +28,17 @@ void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis)
     mixer->set_pause_prev   = false;
     mixer->pause_gain       = 1.0f;
     mixer->pause_level_ema  = 0.0f;
-    mixer->override_active     = false;
-    mixer->override_prev_music = false;
+    mixer->override_active      = false;
+    mixer->override_prev_music  = false;
     mixer->override_prev_tabata = false;
-    mixer->crossfade_gain      = 0.0f;
-    mixer->playlist_level_ema  = 0.0f;
-    mixer->state.playlist_vol  = 0.0f;
+    mixer->crossfade_gain       = 0.0f;
+    mixer->playlist_level_ema   = 0.0f;
+    mixer->state.playlist_vol   = 0.0f;
+    mixer->current_override     = OVERRIDE_NONE;
+    mixer->previous_override    = OVERRIDE_NONE;
+    mixer->override_prev_chill  = false;
+    mixer->chill_level_ema      = 0.0f;
+    mixer->prev_source          = HAL_AUDIO_SOURCE_UNDEFINED;
     mixer->playlist_position   = 0;
     mixer->playlist_length     = 0;
     mixer->playlist_trigger    = -1;
@@ -42,7 +47,7 @@ void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis)
 void soundboard_mixer_tick(soundboard_mixer_t *mixer)
 {
     mixer->playlist_trigger = -1;
-    mixer->active_source = hal_source_switch_read();
+    hal_audio_source_t new_source = hal_source_switch_read();
 
     mixer->laptop_ema = ema_update(mixer->laptop_ema,
                                    mixer->potis->read_normalized(POTI_LAPTOP_VOL));
@@ -58,6 +63,8 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
                                         mixer->potis->read_normalized(POTI_SET_PAUSE_VOL));
     mixer->playlist_level_ema = ema_update(mixer->playlist_level_ema,
                                            mixer->potis->read_normalized(POTI_PLAYLIST_VOL));
+    mixer->chill_level_ema = ema_update(mixer->chill_level_ema,
+                                        mixer->potis->read_normalized(POTI_CHILL_VOL));
 
     /* Button detection — must run before HAL poll so a simultaneous
        complete+new-trigger keeps is_soundbyte_playing true when polled. */
@@ -72,7 +79,12 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
     mixer->soundbyte_playing = hal_soundbyte_is_playing();
 
     if (hal_playlist_track_consume_complete())
-        soundboard_mixer_next_track(mixer);
+    {
+        if (mixer->current_override == OVERRIDE_TABATA)
+            mixer->current_override = mixer->previous_override;
+        else
+            soundboard_mixer_next_track(mixer);
+    }
 
     /* Set Pause toggle — rising-edge detection on the button */
     bool set_pause_now = hal_button_is_pressed(HAL_BUTTON_SET_PAUSE);
@@ -96,27 +108,48 @@ void soundboard_mixer_tick(soundboard_mixer_t *mixer)
             mixer->pause_gain = pause_target;
     }
 
-    /* Override toggle — either button activates/deactivates the crossfade */
-    bool music_now = hal_button_is_pressed(HAL_BUTTON_MUSIC_MODE);
-    if (music_now && !mixer->override_prev_music)
-        mixer->override_active = !mixer->override_active;
-    mixer->override_prev_music = music_now;
+    /* Override buttons — uniform rising-edge semantics:
+       same mode = exit to NONE, different mode = swap directly, source change = exit */
+#define APPLY_OVERRIDE(btn, prev_field, mode)                               \
+    do {                                                                     \
+        bool _now = hal_button_is_pressed(btn);                              \
+        if (_now && !mixer->prev_field) {                                    \
+            override_mode_t _next = (mixer->current_override == (mode))     \
+                                    ? OVERRIDE_NONE : (mode);               \
+            if (_next == OVERRIDE_TABATA)                                   \
+                mixer->previous_override = mixer->current_override;         \
+            mixer->current_override = _next;                                \
+        }                                                                    \
+        mixer->prev_field = _now;                                            \
+    } while (0)
 
-    bool tabata_now = hal_button_is_pressed(HAL_BUTTON_TABATA);
-    if (tabata_now && !mixer->override_prev_tabata)
-        mixer->override_active = !mixer->override_active;
-    mixer->override_prev_tabata = tabata_now;
+    APPLY_OVERRIDE(HAL_BUTTON_MUSIC_MODE, override_prev_music,  OVERRIDE_MUSIC);
+    APPLY_OVERRIDE(HAL_BUTTON_TABATA,     override_prev_tabata, OVERRIDE_TABATA);
+    APPLY_OVERRIDE(HAL_BUTTON_CHILL,      override_prev_chill,  OVERRIDE_CHILL);
 
-    /* Crossfade — advances toward 1.0 on override, back to 0.0 when cleared */
-    if (mixer->override_active)
+#undef APPLY_OVERRIDE
+
+    /* Source switch toggle while override active → exit override */
+    if (new_source != mixer->active_source &&
+        mixer->active_source != HAL_AUDIO_SOURCE_UNDEFINED &&
+        mixer->current_override != OVERRIDE_NONE)
     {
-        mixer->crossfade_gain += PLAYLIST_CROSSFADE_STEP;
+        mixer->current_override = OVERRIDE_NONE;
+    }
+    mixer->active_source = new_source;
+
+    /* Crossfade — rate set by destination mode (SLOW for Chill, FAST for all others) */
+    float cf_step = (mixer->current_override == OVERRIDE_CHILL)
+                    ? PLAYLIST_CROSSFADE_STEP_SLOW : PLAYLIST_CROSSFADE_STEP_FAST;
+    if (mixer->current_override != OVERRIDE_NONE)
+    {
+        mixer->crossfade_gain += cf_step;
         if (mixer->crossfade_gain >= 1.0f)
             mixer->crossfade_gain = 1.0f;
     }
     else
     {
-        mixer->crossfade_gain -= PLAYLIST_CROSSFADE_STEP;
+        mixer->crossfade_gain -= cf_step;
         if (mixer->crossfade_gain <= 0.0f)
             mixer->crossfade_gain = 0.0f;
     }
@@ -235,4 +268,14 @@ int soundboard_mixer_get_playlist_position(soundboard_mixer_t *mixer)
 int soundboard_mixer_get_playlist_trigger(soundboard_mixer_t *mixer)
 {
     return mixer->playlist_trigger;
+}
+
+override_mode_t soundboard_mixer_get_override(soundboard_mixer_t *mixer)
+{
+    return mixer->current_override;
+}
+
+override_mode_t soundboard_mixer_get_previous_override(soundboard_mixer_t *mixer)
+{
+    return mixer->previous_override;
 }

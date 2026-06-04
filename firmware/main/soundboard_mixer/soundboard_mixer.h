@@ -6,7 +6,11 @@
 #include "../interfaces/poti_inputs.h"
 #include "hal_buttons_and_switches.h"
 
-#define PLAYLIST_CROSSFADE_STEP 0.05f
+/* Crossfade rates — property of the destination mode.
+ * FAST (~1s): entering Music/Tabata, all exits back to source.
+ * SLOW (~3s): entering Chill. */
+#define PLAYLIST_CROSSFADE_STEP_FAST 0.05f
+#define PLAYLIST_CROSSFADE_STEP_SLOW 0.02f
 
 typedef struct
 {
@@ -23,6 +27,14 @@ typedef enum
     DUCK_HELD,
     DUCK_FADING_UP,
 } duck_state_t;
+
+typedef enum
+{
+    OVERRIDE_NONE,
+    OVERRIDE_MUSIC,
+    OVERRIDE_TABATA,
+    OVERRIDE_CHILL,
+} override_mode_t;
 
 typedef struct
 {
@@ -41,6 +53,7 @@ typedef struct
     bool  set_pause_prev;
     float pause_gain;
     float pause_level_ema;
+    /* Legacy override fields — kept while old crossfade logic is in place */
     bool  override_active;
     bool  override_prev_music;
     bool  override_prev_tabata;
@@ -49,6 +62,12 @@ typedef struct
     int   playlist_position;
     int   playlist_length;
     int   playlist_trigger;
+    /* REQ-PLAY-001/002/005 override state */
+    override_mode_t current_override;
+    override_mode_t previous_override;
+    bool            override_prev_chill;
+    float           chill_level_ema;
+    hal_audio_source_t prev_source;
 } soundboard_mixer_t;
 
 void soundboard_mixer_init(soundboard_mixer_t *mixer, const poti_input_t *potis);
@@ -59,7 +78,11 @@ soundboard_mixer_vol_state_t soundboard_mixer_get_vol_states(soundboard_mixer_t 
 hal_audio_source_t soundboard_mixer_get_active_audio_source(soundboard_mixer_t *mixer);
 bool soundboard_mixer_is_soundbyte_playing(soundboard_mixer_t *mixer);
 
-// REQ-PLAY-002
+// REQ-PLAY-001/002
+override_mode_t soundboard_mixer_get_override(soundboard_mixer_t *mixer);
+override_mode_t soundboard_mixer_get_previous_override(soundboard_mixer_t *mixer);
+
+// REQ-PLAY-002 (playlist nav — kept for backward compat)
 void soundboard_mixer_set_playlist_length(soundboard_mixer_t *mixer, int length);
 void soundboard_mixer_next_track(soundboard_mixer_t *mixer);
 void soundboard_mixer_previous_track(soundboard_mixer_t *mixer);

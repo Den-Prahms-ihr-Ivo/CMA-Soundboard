@@ -23,7 +23,7 @@ static void warm_up_to_ema_convergence(void)
     // warm up so EMA has converged
     for (int i = 0; i < 50; i++)
         soundboard_mixer_tick(&mixer);
-} // VR 203162
+}
 
 static void drive_to_soundbyte_playing(void)
 {
